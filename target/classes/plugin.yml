@@ -1,0 +1,13 @@
+name: OPIslandsQuestSystem
+version: '1.0-SNAPSHOT'
+main: com.quests.OPIslandsQuestSystem.Quest
+api-version: '1.21'
+authors: [ Paulantis ]
+description: A Minecraft Quest System
+commands:
+  quest:
+    description: Öffnet ein Quest Interface
+    usage: /quest
+  quests:
+    description: Öffnet ein Quest Interface
+    usage: /quests

@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="HikariCP-6.2.1-javadoc (2)">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/lib/HikariCP-6.2.1-javadoc.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
