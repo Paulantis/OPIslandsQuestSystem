@@ -138,7 +138,7 @@ public final class Quest extends JavaPlugin implements Listener {
 
         try (var conn = DatabaseManager.getConnection()) {
             if (conn != null) {
-                System.out.println("Connection to SQLite has been established.");
+                getLogger().info("Connection to SQLite has been established.");
                 try (Statement stmt = conn.createStatement()) {
                     stmt.execute("PRAGMA busy_timeout = 30000;");
                 }
