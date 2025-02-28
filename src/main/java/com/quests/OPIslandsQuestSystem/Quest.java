@@ -61,11 +61,10 @@ Hat man dir nicht gesagt, dass man nicht in andern Leutens Code herumschnüffeln
 package com.quests.OPIslandsQuestSystem;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.*;
 import org.bukkit.advancement.Advancement;
-import org.bukkit.block.Beacon;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.command.Command;
@@ -89,9 +88,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataContainer;
-import org.bukkit.persistence.PersistentDataHolder;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import java.lang.reflect.Type;
@@ -99,7 +95,6 @@ import java.util.List;
 import java.util.Map;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -130,10 +125,10 @@ public final class Quest extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         DatabaseManager.close();
-        getLogger().info("Datenbankverbindung wurde geschlossen.");
+        getLogger().info("Database connection closed.");
     }
 
-    public static void connect() {
+    public void connect() {
         var url = "jdbc:sqlite:quests.db";
 
         try (var conn = DatabaseManager.getConnection()) {
@@ -144,7 +139,7 @@ public final class Quest extends JavaPlugin implements Listener {
                 }
             }
         } catch (SQLException e) {
-            System.out.println(e.getMessage());
+            throw new RuntimeException(e);
         }
     }
 
@@ -194,10 +189,8 @@ public final class Quest extends JavaPlugin implements Listener {
             stmt.execute(questsTable);
             stmt.execute(progressTable);
             stmt.execute(playersTable);
-
-            getLogger().info("Datenbanktabellen wurden erfolgreich erstellt oder existieren bereits.");
         } catch (SQLException e) {
-            getLogger().severe("Fehler beim Erstellen der Datenbank: " + e.getMessage());
+            throw new RuntimeException(e);
         }
     }
 
@@ -1108,9 +1101,9 @@ public final class Quest extends JavaPlugin implements Listener {
                 pstmt.setString(14, taskmode[i]);
                 pstmt.executeUpdate();
             }
-            getLogger().info("Standardquests wurden erfolgreich hinzugefügt.");
+            getLogger().info("Standard quests successfully loaded.");
         } catch (SQLException e) {
-            getLogger().severe("Fehler beim Hinzufügen der Standardquests: " + e.getMessage());
+            throw new RuntimeException("Error while adding the standard quests: " + e);
         }
     }
 
@@ -1285,7 +1278,7 @@ public final class Quest extends JavaPlugin implements Listener {
                 insertStmt.setInt(2, questId);
                 insertStmt.executeUpdate();
             }
-            getLogger().info("Fortschritt für Spieler " + playerUUID + " wurde initialisiert.");
+            getLogger().info("Progress for players " + playerUUID + " was initialized.");
         }
 
         String updateQuest1 = "UPDATE playerprogress SET isQuestforPlayerAvailable = 1 WHERE player_id = ? AND quest_id = 1";
@@ -1303,7 +1296,9 @@ public final class Quest extends JavaPlugin implements Listener {
             openQuestScreen(player, 0);
             return true;
         } else {
-            sender.sendMessage(ChatColor.RED + "Dieser Befehl kann nur von einem Spieler ausgeführt werden!");
+            sender.sendMessage(MiniMessage.miniMessage().deserialize(
+                    "<red>Dieser Befehl kann nur von einem Spieler ausgeführt werden!"
+            ));
             return true;
         }
     }
@@ -1863,7 +1858,7 @@ public final class Quest extends JavaPlugin implements Listener {
                         }
                     }
                 } catch (SQLException | NumberFormatException e) {
-                    System.err.println("Fehler beim Freischalten der Quest " + nextQuestId + ": " + e.getMessage());
+                    throw new RuntimeException("Fehler beim Freischalten der Quest " + nextQuestId + ": " + e);
                 }
             }
         }.runTaskAsynchronously(this);
@@ -3012,7 +3007,6 @@ public final class Quest extends JavaPlugin implements Listener {
         if (lastDamage == null) return;
 
         String deathCause = lastDamage.getCause().name();
-        getLogger().info("onPlayerDeath: Spieler " + player.getName() + " gestorben durch " + deathCause);
 
         new BukkitRunnable() {
             @Override
@@ -3087,7 +3081,6 @@ public final class Quest extends JavaPlugin implements Listener {
         if (advancement == null) return;
 
         String advancementKey = advancement.getKey().toString();
-        getLogger().info("onPlayerAdvancementDone: Spieler " + player.getName() + " hat Advancement " + advancementKey + " abgeschlossen.");
 
         new BukkitRunnable() {
             @Override
