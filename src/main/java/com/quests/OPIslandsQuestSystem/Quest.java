@@ -690,7 +690,7 @@ public final class Quest extends JavaPlugin implements Listener {
                         Map.of("type", "craftItem", "amount", 25, "target", "STONE_SWORD")
                 ),
                 List.of(Map.of("type", "getItem", "amount", 25, "target", "APPLE")),
-                List.of(Map.of("type", "standOnBlock", "height", 44, "amount", 1, "block", "BEDROCK")),
+                List.of(Map.of("type", "standOnBlock", "height", 47, "amount", 1, "block", "BEDROCK")),
                 List.of(Map.of("type", "mineBlock", "amount", 100, "target", "BEETROOTS")),
                 List.of(Map.of("type", "killEntity", "amount", 100, "target", "ZOMBIE")),
                 List.of(
