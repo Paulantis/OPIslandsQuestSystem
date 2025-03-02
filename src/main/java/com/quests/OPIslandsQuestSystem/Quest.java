@@ -352,8 +352,8 @@ public final class Quest extends JavaPlugin implements Listener {
                 "HEART_OF_THE_SEA,3,{\"name\":\"Perle\",\"lore\":[\"Kann zum traden benutzt werden.\",\"Belohnungen von Quests.\"]}",
                 "HEART_OF_THE_SEA,1,{\"name\":\"Perle\",\"lore\":[\"Kann zum traden benutzt werden.\",\"Belohnungen von Quests.\"]}",
                 "HEART_OF_THE_SEA,2,{\"name\":\"Perle\",\"lore\":[\"Kann zum traden benutzt werden.\",\"Belohnungen von Quests.\"]}",
-                "openArea,-149,5,1,-146,5,3",
                 "HEART_OF_THE_SEA,6,{\"name\":\"Perle\",\"lore\":[\"Kann zum traden benutzt werden.\",\"Belohnungen von Quests.\"]}",
+                "openArea,-149,5,1,-146,5,3",
                 "HEART_OF_THE_SEA,8,{\"name\":\"Perle\",\"lore\":[\"Kann zum traden benutzt werden.\",\"Belohnungen von Quests.\"]}",
                 "HEART_OF_THE_SEA,18,{\"name\":\"Perle\",\"lore\":[\"Kann zum traden benutzt werden.\",\"Belohnungen von Quests.\"]}",
                 "HEART_OF_THE_SEA,10,{\"name\":\"Perle\",\"lore\":[\"Kann zum traden benutzt werden.\",\"Belohnungen von Quests.\"]}",
@@ -680,9 +680,6 @@ public final class Quest extends JavaPlugin implements Listener {
                         Map.of("text", "Zombies: ")
                 ),
                 List.of(
-                        Map.of("text", "Zombies: ")
-                ),
-                List.of(
                         Map.of("text", "Eichensätzlinge: "),
                         Map.of("text", "Birkensätzlinge: ")
                 ),
@@ -805,6 +802,14 @@ public final class Quest extends JavaPlugin implements Listener {
                         Map.of("text", "Erledige alle Eisen Quests: ")
                 ),
                 List.of(
+                        Map.of("text", "Schleifstein: "),
+                        Map.of("text", "Schmiedetisch: "),
+                        Map.of("text", "Bücherregal: "),
+                        Map.of("text", "Laterne: "),
+                        Map.of("text", "Lagerfeuer: "),
+                        Map.of("text", "Steinsäge: ")
+                ),
+                List.of(
                         Map.of("text", "Eiche: "),
                         Map.of("text", "Birke: "),
                         Map.of("text", "Schwarzeiche: "),
@@ -909,7 +914,7 @@ public final class Quest extends JavaPlugin implements Listener {
                 ),
                 List.of(Map.of("type", "getItem", "amount", 25, "target", "APPLE")),
                 List.of(Map.of("type", "standOnBlock", "height", 45, "amount", 1, "block", "BEDROCK")),
-                List.of(Map.of("type", "mineBlock", "amount", 100, "target", "BEETROOTS")),
+                List.of(Map.of("type", "placeBlock", "amount", 100, "target", "BEETROOTS")),
                 List.of(Map.of("type", "killEntity", "amount", 100, "target", "ZOMBIE")),
                 List.of(
                         Map.of("type", "fishItem", "amount", 10, "target", "COD")
@@ -2241,6 +2246,17 @@ public final class Quest extends JavaPlugin implements Listener {
         }
     }
 
+    private final Map<UUID, Map<Location, Long>> blockActionCooldowns = new HashMap<>();
+
+    private final long COOLDOWN_MILLIS = 30000;
+
+    private boolean isCrop(Material type) {
+        return type == Material.WHEAT ||
+                type == Material.CARROTS ||
+                type == Material.POTATOES ||
+                type == Material.BEETROOTS;
+    }
+
     @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
@@ -2296,6 +2312,20 @@ public final class Quest extends JavaPlugin implements Listener {
                                         progressMap.put(progressKey, newProgress);
                                     }
                                 }
+                            }
+
+                            Location loc = event.getBlock().getLocation();
+                            Material type = event.getBlock().getType();
+
+                            if (!isCrop(type)) {
+                                UUID playerId = player.getUniqueId();
+                                long now = System.currentTimeMillis();
+                                Map<Location, Long> playerCooldowns = blockActionCooldowns.computeIfAbsent(playerId, k -> new HashMap<>());
+                                Long lastAction = playerCooldowns.get(loc);
+                                if (lastAction != null && now - lastAction < COOLDOWN_MILLIS) {
+                                    return;
+                                }
+                                playerCooldowns.put(loc, now);
                             }
 
                             updateTaskProgress(player, questId, progressMap);
@@ -2889,6 +2919,21 @@ public final class Quest extends JavaPlugin implements Listener {
                                     }
                                 }
                             }
+
+                            Location loc = event.getBlock().getLocation();
+                            Material type = event.getBlock().getType();
+
+                            if (!isCrop(type)) {
+                                UUID playerId = player.getUniqueId();
+                                long now = System.currentTimeMillis();
+                                Map<Location, Long> playerCooldowns = blockActionCooldowns.computeIfAbsent(playerId, k -> new HashMap<>());
+                                Long lastAction = playerCooldowns.get(loc);
+                                if (lastAction != null && now - lastAction < COOLDOWN_MILLIS) {
+                                    return;
+                                }
+                                playerCooldowns.put(loc, now);
+                            }
+
                             updateTaskProgress(player, questId, progressMap);
                         }
                     }
