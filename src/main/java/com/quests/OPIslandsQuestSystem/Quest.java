@@ -161,6 +161,7 @@ public final class Quest extends JavaPlugin implements Listener {
                     + " dimension TEXT NOT NULL,"
                     + " difficulty TEXT NOT NULL,"
                     + " nextquests TEXT,"
+                    + " task_description TEXT,"
                     + " task TEXT,"
                     + " required_quests TEXT DEFAULT NULL,"
                     + " required_value TEXT,"
@@ -195,8 +196,8 @@ public final class Quest extends JavaPlugin implements Listener {
     }
 
     private void addQuests() {
-        String sql = "INSERT OR IGNORE INTO quests(id, name, description, reward, displayreward, layer, dimension, difficulty, nextquests, task, required_quests, required_value, displayitem, taskmode) "
-                + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String sql = "INSERT OR IGNORE INTO quests(id, name, description, reward, displayreward, layer, dimension, difficulty, nextquests, task_description, task, required_quests, required_value, displayitem, taskmode) "
+                + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         Gson gson = new Gson();
 
@@ -273,7 +274,7 @@ public final class Quest extends JavaPlugin implements Listener {
                 "Töte 100 Zombies",
                 "Angle 10 Kabeljau",
                 "Angle 50 Lachs",
-                "Brate 32 Fische",
+                "Brate 32 Kabeljau",
                 "Habe alle Minecart Arten im Inventar",
                 "Erledige alle Kohle Quests",
                 "Besorge dir einen Ofen",
@@ -292,7 +293,7 @@ public final class Quest extends JavaPlugin implements Listener {
                 "Mache 20 Rote Beete Suppen",
                 "Töte 200 Skelette",
                 "Habe ein Effizienz 5, Sharpness 5 oder Smite 5 Buch",
-                "Kaufe eine Diamant Hose",
+                "Kaufe eine Diamantbeinschutz",
                 "Crafte ein Fernglas",
                 "Crafte 32 Kupfer Blöcke",
                 "Erledige alle Eisen Quests",
@@ -657,6 +658,230 @@ public final class Quest extends JavaPlugin implements Listener {
                 "",
                 "",
         };
+        List<List<Map<String, Object>>> allTaskDescriptions = Arrays.asList(
+                List.of(
+                        Map.of("text", "Tagebuch: ")
+                ),
+                List.of(
+                        Map.of( "text", "Steinschwert: "),
+                        Map.of( "text", "Steinspitzhacke: "),
+                        Map.of( "text", "Steinaxt: "),
+                        Map.of( "text", "Steinschaufel: "),
+                        Map.of( "text", "Steinharke: ")
+                ),
+                List.of(
+                        Map.of("text", "Eichenstamm: "),
+                        Map.of("text", "Birkenstamm: ")
+                ),
+                List.of(
+                        Map.of("text", "Steinkohle: ")
+                ),
+                List.of(
+                        Map.of("text", "Zombies: ")
+                ),
+                List.of(
+                        Map.of("text", "Zombies: ")
+                ),
+                List.of(
+                        Map.of("text", "Eichensätzlinge: "),
+                        Map.of("text", "Birkensätzlinge: ")
+                ),
+                List.of(
+                        Map.of("text", "Erreiche das Kohle Versteck: ")
+                ),
+                List.of(
+                        Map.of("text", "Holzschwerter: "),
+                        Map.of("text", "Steinschwerter: ")
+                ),
+                List.of(
+                        Map.of("text", "Äpfel: ")
+                ),
+                List.of(
+                        Map.of("text", "Stehe auf Bedrock: ")
+                ),
+                List.of(
+                        Map.of("text", "Rote Bete: ")
+                ),
+                List.of(
+                        Map.of("text", "Zombies: ")
+                ),
+                List.of(
+                        Map.of("text", "Kabeljau: ")
+                ),
+                List.of(
+                        Map.of("text", "Lachs: ")
+                ),
+                List.of(
+                        Map.of( "text", "Gebratener Kabeljau: ")
+                ),
+                List.of(
+                        Map.of("text", "Lore: "),
+                        Map.of("text", "TNT-Lore: "),
+                        Map.of("text", "Trichterlore: "),
+                        Map.of("text", "Güterlore: "),
+                        Map.of("text", "Ofenlore: ")
+                ),
+                List.of(
+                        Map.of("text", "Erledige alle Kohle Quests: ")
+                ),
+                List.of(
+                        Map.of("text", "Ofen: ")
+                ),
+                List.of(
+                        Map.of("text", "Eiche: "),
+                        Map.of("text", "Birke: "),
+                        Map.of("text", "Schwarzeiche: "),
+                        Map.of("text", "Dschungel: "),
+                        Map.of("text", "Akazie: "),
+                        Map.of("text", "Fichte: "),
+                        Map.of("text", "Mangrove: "),
+                        Map.of("text", "Kirschblüte: ")
+                ),
+                List.of(
+                        Map.of("text", "Eisenerz: ")
+                ),
+                List.of(
+                        Map.of("text", "Skelete: ")
+                ),
+                List.of(
+                        Map.of("text", "Zuckerrohr: ")
+                ),
+                List.of(
+                        Map.of("text", "Finde das Eisenlage")
+                ),
+                List.of(
+                        Map.of("text", "Eisenhelm: "),
+                        Map.of("text", "Eisenharnisch: "),
+                        Map.of("text", "Eisenbeinschutz: "),
+                        Map.of("text", "Eisenstiefel: "),
+                        Map.of("text", "Eisenschwert: "),
+                        Map.of("text", "Eisenspitzhacke: "),
+                        Map.of("text", "Eisenaxt: "),
+                        Map.of("text", "Eisenschaufel: "),
+                        Map.of("text", "Eisenharke: "),
+                        Map.of("text", "Schild: ")
+                ),
+                List.of(
+                        Map.of("text", "Kaktenen: ")
+                ),
+                List.of(
+                        Map.of("text", "Stehe auf dem 2. Bedrock: ")
+                ),
+                List.of(
+                        Map.of("text", "Weizen: ")
+                ),
+                List.of(
+                        Map.of("text", "Skelette: ")
+                ),
+                List.of(
+                        Map.of("text", "Amboss: ")
+                ),
+                List.of(
+                        Map.of("text", "Bücher: "),
+                        Map.of("text", "Eisenhelm: "),
+                        Map.of("text", "Eisenharnisch: "),
+                        Map.of("text", "Eisenbeinschutz: "),
+                        Map.of("text", "Eisenstiefel: ")
+                ),
+                List.of(
+                        Map.of("text", "Rote Bete Suppen: ")
+                ),
+                List.of(
+                        Map.of("text", "Skelette")
+                ),
+                List.of(
+                        Map.of("text", "Habe ein Efi, Shp oder Smt 5 Buch im Inventar")
+                ),
+                List.of(
+                        Map.of("text", "Diamandbeinschutz: ")
+                ),
+                List.of(
+                        Map.of("text", "Fernglas: ")
+                ),
+                List.of(
+                        Map.of("text", "Kupferblöcke: ")
+                ),
+                List.of(
+                        Map.of("text", "Erledige alle Eisen Quests: ")
+                ),
+                List.of(
+                        Map.of("text", "Eiche: "),
+                        Map.of("text", "Birke: "),
+                        Map.of("text", "Schwarzeiche: "),
+                        Map.of("text", "Dschungel: "),
+                        Map.of("text", "Akazie: "),
+                        Map.of("text", "Fichte: "),
+                        Map.of("text", "Mangrove: "),
+                        Map.of("text", "Kirschblüte: ")
+                ),
+                List.of(
+                        Map.of("text", "Golderz: ")
+                ),
+                List.of(
+                        Map.of("text", "Sterbe an Spinne: ")
+                ),
+                List.of(
+                        Map.of("text", "Melonen: "),
+                        Map.of("text", "Kürbisse: "),
+                        Map.of("text", "Rote Bete: ")
+                ),
+                List.of(
+                        Map.of("text", "Finde den Goldbunker:")
+                ),
+                List.of(
+                        Map.of("text", "Diamanthelm: "),
+                        Map.of("text", "Diamantharnisch: "),
+                        Map.of("text", "Diamantbeinschutz: "),
+                        Map.of("text", "Diamantstiefel: ")
+                ),
+                List.of(
+                        Map.of("text", "Wither: ")
+                ),
+                List.of(
+                        Map.of("text", "Stehe auf dem 3. Bedrock: ")
+                ),
+                List.of(
+                        Map.of("text", "Brote: ")
+                ),
+                List.of(
+                        Map.of("text", "Hexen: ")
+                ),
+                List.of(
+                        Map.of("text", "Diamantblock: ")
+                ),
+                List.of(
+                        Map.of("text", "Diamanthelm: "),
+                        Map.of("text", "Diamantharnisch: "),
+                        Map.of("text", "Diamantbeinschutz: "),
+                        Map.of("text", "Diamantstiefel: "),
+                        Map.of("text", "Diamantschwert: "),
+                        Map.of("text", "Diamantspitzhacke: "),
+                        Map.of("text", "Diamantaxt: "),
+                        Map.of("text", "Diamantschaufel: "),
+                        Map.of("text", "Diamantharke: ")
+                ),
+                List.of(
+                        Map.of("text", "Gebratener Lachs: ")
+                ),
+                List.of(
+                        Map.of("text", "Zombies: "),
+                        Map.of("text", "Skelette: "),
+                        Map.of("text", "Hexen: "),
+                        Map.of("text", "Schleime: "),
+                        Map.of("text", "Sumpfskelette: "),
+                        Map.of("text", "Spinne: "),
+                        Map.of("text", "Höhlenspinne: ")
+                ),
+                List.of(
+                        Map.of("text", "Power einen Beacon: ")
+                ),
+                List.of(
+                        Map.of("text", "Power einen Full Beacon: ")
+                ),
+                List.of(
+                        Map.of("text", "Nether: ")
+                )
+        );
 
         List<List<Map<String, Object>>> allTasks = Arrays.asList(
                 List.of(Map.of("type", "openInterface", "x", -127, "y", 72, "z", -15, "amount", 1)),
@@ -683,7 +908,7 @@ public final class Quest extends JavaPlugin implements Listener {
                         Map.of("type", "craftItem", "amount", 25, "target", "STONE_SWORD")
                 ),
                 List.of(Map.of("type", "getItem", "amount", 25, "target", "APPLE")),
-                List.of(Map.of("type", "standOnBlock", "height", 47, "amount", 1, "block", "BEDROCK")),
+                List.of(Map.of("type", "standOnBlock", "height", 45, "amount", 1, "block", "BEDROCK")),
                 List.of(Map.of("type", "mineBlock", "amount", 100, "target", "BEETROOTS")),
                 List.of(Map.of("type", "killEntity", "amount", 100, "target", "ZOMBIE")),
                 List.of(
@@ -729,7 +954,7 @@ public final class Quest extends JavaPlugin implements Listener {
                         Map.of("type", "craftItem", "amount", 1, "target", "SHIELD")
                 ),
                 List.of(Map.of("type", "getItem", "amount", 64, "target", "CACTUS")),
-                List.of(Map.of("type", "standOnBlock", "height", 5, "amount", 1, "block", "BEDROCK")),
+                List.of(Map.of("type", "standOnBlock", "height", 6, "amount", 1, "block", "BEDROCK")),
                 List.of(Map.of("type", "mineBlock", "amount", 300, "target", "WHEAT")),
                 List.of(Map.of("type", "killEntity", "amount", 5, "target", "SKELETON", "weapon", "BOW")),
                 List.of(Map.of("type", "craftItem", "amount", 1, "target", "ANVIL")),
@@ -1086,19 +1311,22 @@ public final class Quest extends JavaPlugin implements Listener {
                 pstmt.setString(8, difficulties[i]);
                 pstmt.setString(9, nextQuests[i]);
 
+                String taskdescriptionJson = gson.toJson(allTaskDescriptions.get(i));
+                pstmt.setString(10, taskdescriptionJson);
+
                 String taskJson = gson.toJson(allTasks.get(i));
-                pstmt.setString(10, taskJson);
+                pstmt.setString(11, taskJson);
 
                 String requiredQuestsJson = required_quests[i].isEmpty() ? "[]" : gson.toJson(Arrays.stream(required_quests[i].split(","))
                         .map(String::trim)
                         .map(Integer::parseInt)
                         .collect(Collectors.toList()));
 
-                pstmt.setString(11, requiredQuestsJson);
+                pstmt.setString(12, requiredQuestsJson);
 
-                pstmt.setInt(12, requiredValues[i]);
-                pstmt.setString(13, displayItems[i]);
-                pstmt.setString(14, taskmode[i]);
+                pstmt.setInt(13, requiredValues[i]);
+                pstmt.setString(14, displayItems[i]);
+                pstmt.setString(15, taskmode[i]);
                 pstmt.executeUpdate();
             }
             getLogger().info("Standard quests successfully loaded.");
@@ -1354,7 +1582,7 @@ public final class Quest extends JavaPlugin implements Listener {
         inv.setItem(53, Help);
 
         String sql = "SELECT q.id, q.name, q.description, q.reward, q.displayreward, q.layer, q.dimension, q.difficulty, " +
-                "q.displayitem, pp.isQuestforPlayerAvailable, pp.completed, pp.tasks, q.task " +
+                "q.displayitem, pp.isQuestforPlayerAvailable, pp.completed, pp.tasks, q.task, q.task_description " +
                 "FROM quests q " +
                 "LEFT JOIN playerprogress pp ON q.id = pp.quest_id AND pp.player_id = ? " +
                 "ORDER BY q.id ASC";
@@ -1381,6 +1609,7 @@ public final class Quest extends JavaPlugin implements Listener {
                     boolean isCompleted = rs.getBoolean("completed");
                     String taskJson = rs.getString("task");
                     String progressJson = rs.getString("tasks");
+                    String taskDescriptionJson = rs.getString("task_description");
 
                     Material material = Material.BARRIER;
                     if (isCompleted) {
@@ -1405,6 +1634,7 @@ public final class Quest extends JavaPlugin implements Listener {
                         } else if (isAvailable) {
                             Map<String, Integer> progressMap = progressJson != null ? gson.fromJson(progressJson, progressType) : new HashMap<>();
                             List<Map<String, Object>> taskList = taskJson != null ? gson.fromJson(taskJson, taskListType) : new ArrayList<>();
+                            List<Map<String, Object>> taskDescriptions = taskDescriptionJson != null ? gson.fromJson(taskDescriptionJson, taskListType) : new ArrayList<>();
                             String layer = rs.getString("layer");
                             String dimension = rs.getString("dimension");
                             String difficulty = rs.getString("difficulty");
@@ -1415,18 +1645,19 @@ public final class Quest extends JavaPlugin implements Listener {
                             lore.add(ChatColor.BLUE + "Difficulty: " + ChatColor.WHITE + difficulty);
                             lore.add("");
                             lore.add(ChatColor.BLUE + "Aufgaben:");
-                            for (Map<String, Object> task : taskList) {
+                            for (int i = 0; i < taskList.size(); i++) {
+                                Map<String, Object> task = taskList.get(i);
                                 String taskType = (String) task.get("type");
                                 String target = task.containsKey("target") ? (String) task.get("target") : "Unbekannt";
                                 int requiredAmount = task.containsKey("amount") && task.get("amount") instanceof Number
                                         ? ((Number) task.get("amount")).intValue()
                                         : 1;
 
-
                                 String progressKey = taskType + ":" + target;
                                 int taskProgress = progressMap.getOrDefault(progressKey, 0);
-                            String progressText = ChatColor.GRAY + " - " + ChatColor.GOLD + taskProgress + "/" + requiredAmount;
+                                String taskDescription = (i < taskDescriptions.size()) ? (String) taskDescriptions.get(i).get("text") : "";
 
+                                String progressText = ChatColor.GRAY + " - " + ChatColor.GOLD + taskDescription + " " + taskProgress + "/" + requiredAmount;
                                 lore.add(progressText);
                             }
 
