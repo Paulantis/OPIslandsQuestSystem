@@ -62,6 +62,7 @@ package com.quests.OPIslandsQuestSystem;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.*;
 import org.bukkit.advancement.Advancement;
@@ -81,16 +82,15 @@ import org.bukkit.event.enchantment.EnchantItemEvent;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.*;
-import org.bukkit.inventory.CraftingInventory;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+
 import java.lang.reflect.Type;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -120,6 +120,8 @@ public final class Quest extends JavaPlugin implements Listener {
             }
         }.runTaskAsynchronously(this);
         setupRestrictedZones();
+        setupSellOffers();
+        setupBuyOffers();
     }
 
     @Override
@@ -187,9 +189,18 @@ public final class Quest extends JavaPlugin implements Listener {
                     + " join_date TEXT NOT NULL"
                     + ");";
 
+            String shopsTable = "CREATE TABLE IF NOT EXISTS shops ("
+                    + " id INTEGER PRIMARY KEY,"
+                    + " uuid TEXT NOT NULL,"
+                    + " item TEXT NOT NULL,"
+                    + " available BOOLEAN NOT NULL,"
+                    + " UNIQUE(uuid, item)"
+                    + ");";
+
             stmt.execute(questsTable);
             stmt.execute(progressTable);
             stmt.execute(playersTable);
+            stmt.execute(shopsTable);
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }
@@ -1462,13 +1473,12 @@ public final class Quest extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         checkPlayerInventoryForQuestItems(player);
     }
-
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         String playerUUID = player.getUniqueId().toString();
         String playerName = player.getName();
-        String joinDate = java.time.LocalDate.now().toString();
+        String joinDate = LocalDate.now().toString();
 
         try (Connection conn = getConnection()) {
             String checkPlayerExists = "SELECT 1 FROM players WHERE uuid = ?";
@@ -1486,6 +1496,7 @@ public final class Quest extends JavaPlugin implements Listener {
                     }
                     initializePlayerProgress(conn, playerUUID);
                     player.sendMessage(ChatColor.GREEN + "Willkommen auf dem Server, " + playerName + "!");
+                    addAvailableItemsToPlayerShopsTable(player);
                 } else {
                     player.sendMessage(ChatColor.YELLOW + "Willkommen zurück, " + playerName + "!");
                 }
@@ -1520,6 +1531,55 @@ public final class Quest extends JavaPlugin implements Listener {
             updateStmt.executeUpdate();
         }
     }
+    private void addAvailableItemsToPlayerShopsTable(Player player) {
+        try (Connection conn = getConnection()) {
+            String checkSql = "SELECT COUNT(*) FROM shops WHERE uuid = ? AND item = ?";
+            String insertSql = "INSERT INTO shops (uuid, item, available) VALUES (?, ?, ?)";
+
+            try (PreparedStatement checkStmt = conn.prepareStatement(checkSql);
+                 PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+
+                int batchSize = 0;
+
+                for (BuyOffer offer : buyOffers.values()) {
+                    if (offer.isOnetimebought() != 3) {
+                        String item = offer.getItem().getType().name();
+
+                        checkStmt.setString(1, player.getUniqueId().toString());
+                        checkStmt.setString(2, item);
+
+                        try (ResultSet rs = checkStmt.executeQuery()) {
+                            if (!rs.next() || rs.getInt(1) == 0) {
+                                insertStmt.setString(1, player.getUniqueId().toString());
+                                insertStmt.setString(2, item);
+                                insertStmt.setBoolean(3, true);
+                                insertStmt.addBatch();
+                                batchSize++;
+                            }
+                        }
+
+                        if (batchSize >= 50) {
+                            insertStmt.executeBatch();
+                            batchSize = 0;
+                        }
+                    }
+                }
+
+                if (batchSize > 0) {
+                    insertStmt.executeBatch();
+                }
+
+                player.sendMessage(ChatColor.GREEN + "Alle verfügbaren Items wurden für dich freigeschaltet!");
+
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+
 
     // GUI
     @Override
@@ -2101,6 +2161,8 @@ public final class Quest extends JavaPlugin implements Listener {
     }
 
     public void openBook(Player player) {
+        Component page1 = MiniMessage.miniMessage().deserialize("<gray>|-------<dark_gray><bold>FAQ</bold></dark_gray>-------|</gray>\n" +
+                "Mehr Infos auf unserem Discord");
         ItemStack book = new ItemStack(Material.WRITTEN_BOOK);
 
 
@@ -2110,9 +2172,7 @@ public final class Quest extends JavaPlugin implements Listener {
             bookMeta.setAuthor("Plugin");
 
 
-            bookMeta.addPage(
-                    "ERROR 6672: Message cant be localized;\n" + "Caused by: missing Text at PinguinGang\n" + "Caused by: PinguinGang\n "
-            );
+            bookMeta.pages(page1);
             book.setItemMeta(bookMeta);
         }
 
@@ -3491,6 +3551,874 @@ public final class Quest extends JavaPlugin implements Listener {
         restrictedZones.add(zone2);
         restrictedZones.add(zone3);
     }
+
+    //Villager Shop
+    @EventHandler
+    public void onPlayerInteractShopKeeper(PlayerInteractEntityEvent event) {
+        if (!(event.getRightClicked() instanceof Villager)) return;
+
+        Villager villager = (Villager) event.getRightClicked();
+        Player player = event.getPlayer();
+
+        Location shopLocation = new Location(Bukkit.getWorld("world"), -128, 72, -14);
+
+        double tolerance = 2.0;
+        if (!villager.getLocation().getWorld().equals(shopLocation.getWorld()) ||
+                villager.getLocation().distance(shopLocation) > tolerance) {
+            return;
+        }
+
+        event.setCancelled(true);
+        shopInv(player);
+    }
+
+    @EventHandler
+    public void onShopClick(InventoryClickEvent event) {
+        Player player = (Player) event.getWhoClicked();
+        if (event.getView().getTitle().equals("Shop")) {
+            event.setCancelled(true);
+            if (event.getSlot() == 14 && event.getCurrentItem().getType() == Material.DIAMOND) {
+                event.getWhoClicked().closeInventory();
+                sellInv(player, 0);
+            } else if (event.getSlot() == 12 && event.getCurrentItem().getType() == Material.EMERALD) {
+                event.getWhoClicked().closeInventory();
+                buyInv(player, 0);
+            }
+        }
+
+    }
+
+    public void shopInv(Player player) {
+        Inventory shopInventory = Bukkit.createInventory(null, 27, "Shop");
+
+        ItemStack diamond = new ItemStack(Material.DIAMOND, 1);
+        ItemMeta sellMeta = diamond.getItemMeta();
+        if (sellMeta != null) {
+            sellMeta.setDisplayName(ChatColor.AQUA + "Verkaufen");
+            diamond.setItemMeta(sellMeta);
+        }
+
+        ItemStack emerald = new ItemStack(Material.EMERALD, 1);
+        ItemMeta buyMeta = emerald.getItemMeta();
+        if (buyMeta != null) {
+            buyMeta.setDisplayName(ChatColor.GREEN + "Kaufen");
+            emerald.setItemMeta(buyMeta);
+        }
+
+        ItemStack glassPane = new ItemStack(Material.GRAY_STAINED_GLASS_PANE, 1);
+        ItemMeta glassMeta = glassPane.getItemMeta();
+        if (glassMeta != null) {
+            glassMeta.setDisplayName(" ");
+            glassPane.setItemMeta(glassMeta);
+        }
+
+        for (int i = 0; i < shopInventory.getSize(); i++) {
+            shopInventory.setItem(i, glassPane);
+        }
+
+        shopInventory.setItem(14, diamond);
+        shopInventory.setItem(12, emerald);
+
+        player.openInventory(shopInventory);
+    }
+
+
+    @EventHandler
+    public void onSellInventoryClose(InventoryCloseEvent event) {
+        if (!event.getView().getTitle().equals("Verkaufen")) return;
+
+        Player player = (Player) event.getPlayer();
+        Inventory inv = event.getInventory();
+
+        for (int slot = 0; slot < 27; slot++) {
+            ItemStack item = inv.getItem(slot);
+            if (item == null) continue;
+
+            Map<Integer, ItemStack> leftover = player.getInventory().addItem(item);
+            if (!leftover.isEmpty()) {
+                Location loc = player.getLocation();
+                for (ItemStack it : leftover.values()) {
+                    player.getWorld().dropItemNaturally(loc, it);
+                }
+            }
+            inv.setItem(slot, null);
+        }
+    }
+
+    public class BuyOffer {
+        private final ItemStack item;
+        private final int price;
+        private final int amount;
+        private int onetimebought;
+        private final List<Integer> requiredQuests;
+
+
+        public BuyOffer(ItemStack item, int price, int amount, int onetimebought,  List<Integer> requiredQuests) {
+            this.item = item;
+            this.price = price;
+            this.amount = amount;
+            this.onetimebought = onetimebought;
+            this.requiredQuests = requiredQuests;
+        }
+
+        public ItemStack getItem() {
+            return item;
+        }
+
+        public int getPrice() {
+            return price;
+        }
+
+        public int getAmount() {
+            return amount;
+        }
+        public int isOnetimebought() {
+            return onetimebought;
+        }
+
+        public List<Integer> getRequiredQuests() {
+            return requiredQuests;
+        }
+    }
+
+    private final Map<Integer, BuyOffer> buyOffers = new HashMap<>();
+
+    private void setupBuyOffers() {
+        addBuyOffer(Material.COAL, 2, 64, 1, Arrays.asList());
+        addBuyOffer(createUnbreakableIronChestplate(), 10, 1, 1, Arrays.asList());
+        addBuyOffer(Material.BREAD, 3, 64, 1, Arrays.asList());
+        addBuyOffer(Material.CHICKEN_SPAWN_EGG, 6, 2, 1, Arrays.asList());
+        addBuyOffer(Material.COBBLESTONE, 2, 64, 1, Arrays.asList());
+        addBuyOffer(Material.OAK_SAPLING, 1, 1, 1, Arrays.asList());
+        addBuyOffer(Material.BIRCH_SAPLING, 1, 1, 1, Arrays.asList());
+        addBuyOffer(Material.SPRUCE_SAPLING, 4, 1, 1, Arrays.asList());
+        addBuyOffer(Material.DARK_OAK_SAPLING, 4, 1, 1, Arrays.asList());
+        addBuyOffer(Material.JUNGLE_SAPLING, 8, 1, 1, Arrays.asList(17));
+        addBuyOffer(Material.ACACIA_SAPLING, 8, 1, 1, Arrays.asList(17));
+        addBuyOffer(Material.CHERRY_SAPLING, 16, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.MANGROVE_PROPAGULE, 16, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.DIRT, 2, 16, 1, Arrays.asList());
+        addBuyOffer(Material.BONE, 1, 5, 1, Arrays.asList());
+        addBuyOffer(Material.TRIDENT, 25, 1, 1, Arrays.asList());
+        addBuyOffer(Material.COW_SPAWN_EGG, 4, 2, 1, Arrays.asList());
+        addBuyOffer(Material.WHEAT_SEEDS, 8, 1, 1, Arrays.asList());
+        addBuyOffer(Material.CACTUS, 8, 1, 1, Arrays.asList());
+        addBuyOffer(Material.DIAMOND_LEGGINGS, 20, 1, 1, Arrays.asList(17));
+        addBuyOffer(Material.COPPER_BLOCK, 1, 5, 1, Arrays.asList(17));
+        addBuyOffer(Material.ENCHANTING_TABLE, 50, 1, 1, Arrays.asList(17));
+        addBuyOffer(Material.RAW_IRON, 3, 16, 1, Arrays.asList(17));
+        addBuyOffer(Material.REDSTONE, 2, 64, 1, Arrays.asList(17));
+        addBuyOffer(Material.WOLF_SPAWN_EGG, 10, 1, 2, Arrays.asList(17));
+        addBuyOffer(Material.WOLF_ARMOR, 10, 1, 1, Arrays.asList(17));
+        addBuyOffer(Material.WIND_CHARGE, 10, 24, 1, Arrays.asList(17));
+        addBuyOffer(Material.LAVA_BUCKET, 5, 1, 1, Arrays.asList(17));
+        addBuyOffer(Material.LAPIS_LAZULI, 20, 6, 1, Arrays.asList(17));
+        addBuyOffer(Material.DIAMOND, 8, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.WITHER_SKELETON_SKULL, 64, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.SOUL_SAND, 2, 4, 1, Arrays.asList(37));
+        addBuyOffer(Material.ANCIENT_DEBRIS, 50, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.NETHERITE_UPGRADE_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.SENTRY_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.VEX_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.WILD_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.COAST_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.DUNE_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.WARD_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.SILENCE_ARMOR_TRIM_SMITHING_TEMPLATE, 64, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.SNOUT_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.RIB_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.EYE_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.SPIRE_ARMOR_TRIM_SMITHING_TEMPLATE, 10, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.WAYFINDER_ARMOR_TRIM_SMITHING_TEMPLATE, 20, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.RAISER_ARMOR_TRIM_SMITHING_TEMPLATE, 20, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.SHAPER_ARMOR_TRIM_SMITHING_TEMPLATE, 20, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.HOST_ARMOR_TRIM_SMITHING_TEMPLATE, 20, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.BEE_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.LLAMA_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.PANDA_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.ARMADILLO_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.CAMEL_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.CAT_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.CHICKEN_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.COW_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.DONKEY_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.FOX_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.FROG_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.HORSE_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.PIG_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+        addBuyOffer(Material.SHEEP_SPAWN_EGG, 40, 1, 1, Arrays.asList(37));
+    }
+
+    private void addBuyOffer(Material material, int price, int amount, int onetimebought, List<Integer> requiredQuests) {
+        ItemStack item = new ItemStack(material, 1);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            item.setItemMeta(meta);
+        }
+        buyOffers.put(buyOffers.size(), new BuyOffer(item, price, amount, onetimebought, requiredQuests));
+    }
+    private void addBuyOffer(ItemStack item, int price, int amount, int onetimebought, List<Integer> requiredQuests) {
+        buyOffers.put(buyOffers.size(), new BuyOffer(item, price, amount, onetimebought, requiredQuests));
+    }
+
+    private ItemStack createUnbreakableIronChestplate() {
+        ItemStack chestplate = new ItemStack(Material.IRON_CHESTPLATE, 1);
+        ItemMeta meta = chestplate.getItemMeta();
+
+        meta.setUnbreakable(true);
+        chestplate.setItemMeta(meta);
+        return chestplate;
+    }
+
+
+    private final Map<Player, Integer> buyPageMap = new HashMap<>();
+    private final int ITEMS_PER_PAGE = 28;
+
+    private boolean hasCompletedRequiredQuests(Player player, List<Integer> requiredQuests) {
+        if (requiredQuests.isEmpty()) return true;
+
+        String playerUUID = player.getUniqueId().toString();
+        Set<Integer> completedQuests = new HashSet<>();
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT quest_id FROM playerprogress WHERE player_id = ? AND completed = true")) {
+            stmt.setString(1, playerUUID);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    completedQuests.add(rs.getInt("quest_id"));
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+
+        return completedQuests.containsAll(requiredQuests);
+    }
+
+
+    public void buyInv(Player player, int pageIndex) {
+        buyPageMap.put(player, pageIndex);
+
+        Inventory buyInv = Bukkit.createInventory(null, 54, "Kaufen - Seite " + (pageIndex + 1));
+
+        int[] allowedSlots = {
+                10, 11, 12, 13, 14, 15, 16,
+                19, 20, 21, 22, 23, 24, 25,
+                28, 29, 30, 31, 32, 33, 34,
+                37, 38, 39, 40, 41, 42, 43
+        };
+
+        ItemStack Exit = new ItemStack(Material.BARRIER, 1);
+        ItemMeta exitMeta = Exit.getItemMeta();
+        if (exitMeta != null) {
+            exitMeta.setDisplayName(ChatColor.RED + "EXIT");
+            Exit.setItemMeta(exitMeta);
+        }
+        ItemStack glassPane = new ItemStack(Material.GRAY_STAINED_GLASS_PANE, 1);
+        ItemMeta glassMeta = glassPane.getItemMeta();
+        if (glassMeta != null) {
+            glassMeta.setDisplayName(" ");
+            glassPane.setItemMeta(glassMeta);
+        }
+        for (int i = 0; i < buyInv.getSize(); i++) {
+            buyInv.setItem(i, glassPane);
+        }
+
+        List<BuyOffer> offerList = new ArrayList<>();
+        for (BuyOffer offer : buyOffers.values()) {
+            if (hasCompletedRequiredQuests(player, offer.getRequiredQuests())) {
+                offerList.add(offer);
+            }
+        }
+
+        int totalPages = (int) Math.ceil((double) offerList.size() / allowedSlots.length);
+        if (pageIndex >= totalPages) pageIndex = totalPages - 1;
+
+
+        List<BuyOffer> offerList1 = new ArrayList<>(buyOffers.values());
+        int startIndex = pageIndex * ITEMS_PER_PAGE;
+        int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, offerList.size());
+
+        for (int i = startIndex, slotIndex = 0; i < endIndex; i++, slotIndex++) {
+            BuyOffer offer = offerList.get(i);
+            ItemStack displayItem = offer.getItem().clone();
+            ItemMeta meta = displayItem.getItemMeta();
+            if (meta != null) {
+                meta.setLore(Arrays.asList(
+                        ChatColor.YELLOW + "Preis: " + ChatColor.GOLD + offer.getPrice() + " Perlen",
+                        ChatColor.GREEN + "Klicken, um zu kaufen"
+                ));
+                displayItem.setAmount(offer.getAmount());
+                displayItem.setItemMeta(meta);
+            }
+            boolean isItemAvailable = isItemAvailableForPlayer(player, offer);
+            if (slotIndex < allowedSlots.length) {
+                if (isItemAvailable) {
+                    if (offer.isOnetimebought() == 1) {
+                        buyInv.setItem(allowedSlots[slotIndex], displayItem);
+                    } else if (offer.isOnetimebought() == 2) {
+                        buyInv.setItem(allowedSlots[slotIndex], displayItem);
+                    }
+                } else {
+                    ItemStack unavailableItem = new ItemStack(Material.BARRIER);
+                    ItemMeta unavailableMeta = unavailableItem.getItemMeta();
+                    if (unavailableMeta != null) {
+                        unavailableMeta.setDisplayName(ChatColor.RED + "Nicht verfügbar");
+                        unavailableItem.setItemMeta(unavailableMeta);
+                    }
+                    buyInv.setItem(allowedSlots[slotIndex], unavailableItem);
+                }
+            }
+            buyInv.setItem(45, Exit);
+        }
+
+        if (pageIndex > 0) {
+            ItemStack prevPage = new ItemStack(Material.ARROW);
+            ItemMeta prevMeta = prevPage.getItemMeta();
+            if (prevMeta != null) {
+                prevMeta.setDisplayName(ChatColor.YELLOW + "⬅ Vorherige Seite");
+                prevPage.setItemMeta(prevMeta);
+            }
+            buyInv.setItem(48, prevPage);
+        }
+
+        if (endIndex < offerList.size()) {
+            ItemStack nextPage = new ItemStack(Material.ARROW);
+            ItemMeta nextMeta = nextPage.getItemMeta();
+            if (nextMeta != null) {
+                nextMeta.setDisplayName(ChatColor.YELLOW + "Nächste Seite ➡");
+                nextPage.setItemMeta(nextMeta);
+            }
+            buyInv.setItem(50, nextPage);
+        }
+
+        player.openInventory(buyInv);
+    }
+
+    private boolean isItemAvailableForPlayer(Player player, BuyOffer offer) {
+        try (Connection conn = getConnection()) {
+            String sql = "SELECT available FROM shops WHERE uuid = ? AND item = ?";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, player.getUniqueId().toString());
+                stmt.setString(2, offer.getItem().getType().name());
+                ResultSet rs = stmt.executeQuery();
+
+
+                while (rs.next()) {
+                    if (rs.getBoolean("available")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+
+
+    public void confirmBuyInv(Player player, BuyOffer offer) {
+        Inventory confirmInv = Bukkit.createInventory(null, 27, "Kauf bestätigen");
+
+        ItemStack glassPane = new ItemStack(Material.GRAY_STAINED_GLASS_PANE, 1);
+        ItemMeta glassMeta = glassPane.getItemMeta();
+        if (glassMeta != null) {
+            glassMeta.setDisplayName(" ");
+            glassPane.setItemMeta(glassMeta);
+        }
+        for (int i = 0; i < confirmInv.getSize(); i++) {
+            confirmInv.setItem(i, glassPane);
+        }
+
+        confirmInv.setItem(13, offer.getItem().clone());
+
+        ItemStack buyButton = new ItemStack(Material.LIME_STAINED_GLASS_PANE, 1);
+        ItemMeta buyMeta = buyButton.getItemMeta();
+        if (buyMeta != null) {
+            buyMeta.setDisplayName(ChatColor.GREEN + "Kaufen");
+            buyButton.setItemMeta(buyMeta);
+        }
+        confirmInv.setItem(15, buyButton);
+
+        ItemStack cancelButton = new ItemStack(Material.RED_STAINED_GLASS_PANE, 1);
+        ItemMeta cancelMeta = cancelButton.getItemMeta();
+        if (cancelMeta != null) {
+            cancelMeta.setDisplayName(ChatColor.RED + "Abbrechen");
+            cancelButton.setItemMeta(cancelMeta);
+        }
+        confirmInv.setItem(11, cancelButton);
+
+        player.openInventory(confirmInv);
+    }
+
+    public void getLevel(Player player) {
+
+    }
+
+    @EventHandler
+    public void onBuyInventoryClick(InventoryClickEvent event) {
+        if (!event.getView().getTitle().startsWith("Kaufen - Seite")) return;
+
+        Player player = (Player) event.getWhoClicked();
+        ItemStack clickedItem = event.getCurrentItem();
+
+        if (clickedItem == null || clickedItem.getType() == Material.AIR) {
+            event.setCancelled(true);
+            return;
+        }
+
+        if (clickedItem.getType() == Material.BARRIER) {
+            shopInv(player);
+            event.setCancelled(true);
+        }
+
+        if (clickedItem.getType() == Material.GRAY_STAINED_GLASS_PANE) {
+            event.setCancelled(true);
+            return;
+        }
+
+        event.setCancelled(true);
+
+        for (BuyOffer offer : buyOffers.values()) {
+            if (clickedItem.getType() == offer.getItem().getType()) {
+                confirmBuyInv(player, offer);
+                return;
+            }
+        }
+        int currentPage = buyPageMap.getOrDefault(player, 0);
+
+        if (clickedItem.getType() == Material.ARROW) {
+            if (clickedItem.getItemMeta().getDisplayName().contains("⬅")) {
+                buyInv(player, currentPage - 1);
+            } else if (clickedItem.getItemMeta().getDisplayName().contains("➡")) {
+                buyInv(player, currentPage + 1);
+            }
+            return;
+        }
+
+    }
+
+
+    @EventHandler
+    public void onConfirmInventoryClick(InventoryClickEvent event) {
+        if (!event.getView().getTitle().equals("Kauf bestätigen")) return;
+
+        event.setCancelled(true);
+
+        Player player = (Player) event.getWhoClicked();
+        Inventory inv = event.getInventory();
+        ItemStack clickedItem = event.getCurrentItem();
+
+        if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
+
+        if (clickedItem.getType() == Material.LIME_STAINED_GLASS_PANE) {
+            ItemStack itemToBuy = inv.getItem(13);
+            if (itemToBuy == null) return;
+
+            for (BuyOffer offer : buyOffers.values()) {
+                if (itemToBuy.isSimilar(offer.getItem())) {
+                    int playerPearls = getPearlCount(player);
+                    if (playerPearls >= offer.getPrice()) {
+                        removePearls(player, offer.getPrice());
+                        ItemStack item = offer.getItem().clone();
+                        int amount = offer.getAmount();
+                        item.setAmount(amount);
+                        player.getInventory().addItem(item);
+                        player.sendMessage(ChatColor.GREEN + "Du hast " + offer.getItem().getItemMeta().getDisplayName() + " für " + offer.getPrice() + " Perlen gekauft!");
+                        if (offer.onetimebought == 2) {
+                            updatePlayerShopData(player, offer.getItem().getType().name(), false);
+                        }
+                    } else {
+                        player.sendMessage(ChatColor.RED + "Nicht genügend Perlen!");
+                    }
+                    player.closeInventory();
+                    return;
+                }
+            }
+        } else if (clickedItem.getType() == Material.RED_STAINED_GLASS_PANE) {
+            player.closeInventory();
+            buyInv(player, 0);
+        }
+    }
+
+    private void updatePlayerShopData(Player player, String item, boolean available) {
+        String playerUUID = player.getUniqueId().toString();
+
+        try (Connection conn = getConnection()) {
+            String checkQuery = "SELECT COUNT(*) FROM shops WHERE uuid = ? AND item = ?";
+            try (PreparedStatement checkStmt = conn.prepareStatement(checkQuery)) {
+                checkStmt.setString(1, playerUUID);
+                checkStmt.setString(2, item);
+                ResultSet rs = checkStmt.executeQuery();
+                if (rs.next() && rs.getInt(1) > 0) {
+                    String updateQuery = "UPDATE shops SET available = ? WHERE uuid = ? AND item = ?";
+                    try (PreparedStatement updateStmt = conn.prepareStatement(updateQuery)) {
+                        updateStmt.setBoolean(1, available);
+                        updateStmt.setString(2, playerUUID);
+                        updateStmt.setString(3, item);
+                        updateStmt.executeUpdate();
+                    }
+                } else {
+                    String insertQuery = "INSERT INTO shops (uuid, item, available) VALUES (?, ?, ?)";
+                    try (PreparedStatement insertStmt = conn.prepareStatement(insertQuery)) {
+                        insertStmt.setString(1, playerUUID);
+                        insertStmt.setString(2, item);
+                        insertStmt.setBoolean(3, available);
+                        insertStmt.executeUpdate();
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    private void saveItemToDatabase(Player player, BuyOffer offer) {
+        try (Connection conn = getConnection()) {
+            String sql = "INSERT INTO shops (uuid, item, available) VALUES (?, ?, ?)";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, player.getUniqueId().toString());
+                stmt.setString(2, offer.getItem().getType().toString());
+                stmt.setBoolean(3, false);
+                stmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private int getPearlCount(Player player) {
+        int count = 0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() == Material.HEART_OF_THE_SEA) {
+                count += item.getAmount();
+            }
+        }
+        return count;
+    }
+
+    private void removePearls(Player player, int amount) {
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() == Material.HEART_OF_THE_SEA) {
+                int stackAmount = item.getAmount();
+                if (stackAmount > amount) {
+                    item.setAmount(stackAmount - amount);
+                    return;
+                } else {
+                    amount -= stackAmount;
+                    item.setAmount(0);
+                }
+                if (amount <= 0) return;
+            }
+        }
+    }
+
+
+
+
+
+
+    public class SellOffer {
+        private final ItemStack item;
+        private final int price;
+        private final int amount;
+        private final List<Integer> requiredQuests;
+
+        public SellOffer(ItemStack item, int price, int amount, List<Integer> requiredQuests) {
+            this.item = item;
+            this.price = price;
+            this.amount = amount;
+            this.requiredQuests = requiredQuests;
+        }
+
+        public ItemStack getItem() {
+            return item;
+        }
+
+        public int getPrice() {
+            return price;
+        }
+
+        public int getAmount() {
+            return amount;
+        }
+
+        public List<Integer> getRequiredQuests() {
+            return requiredQuests;
+        }
+    }
+
+
+    private final Map<Integer, SellOffer> sellOffers = new HashMap<>();
+
+    private void setupSellOffers() {
+        addSellOffer(Material.BEETROOT, 1, 32, Arrays.asList());
+        addSellOffer(Material.ROTTEN_FLESH, 1, 40, Arrays.asList());
+        addSellOffer(Material.OAK_LOG, 1, 32, Arrays.asList());
+        addSellOffer(Material.BIRCH_LOG, 1, 32, Arrays.asList());
+        addSellOffer(Material.SPRUCE_LOG, 1, 48, Arrays.asList());
+        addSellOffer(Material.DARK_OAK_LOG, 1, 64, Arrays.asList());
+        addSellOffer(Material.JUNGLE_LOG, 1, 64, Arrays.asList(17));
+        addSellOffer(Material.ACACIA_LOG, 1, 32, Arrays.asList(17));
+        addSellOffer(Material.CHERRY_LOG, 1, 32, Arrays.asList(37));
+        addSellOffer(Material.MANGROVE_LOG, 1, 32, Arrays.asList(37));
+        addSellOffer(Material.COD, 1, 24, Arrays.asList());
+        addSellOffer(Material.SALMON, 1, 24, Arrays.asList());
+        addSellOffer(Material.TROPICAL_FISH, 1, 24, Arrays.asList());
+        addSellOffer(Material.EGG, 1, 24, Arrays.asList());
+        addSellOffer(Material.LEATHER, 1, 24, Arrays.asList());
+        addSellOffer(Material.BONE, 4, 32, Arrays.asList(17));
+        addSellOffer(Material.PUFFERFISH, 2, 10, Arrays.asList(17));
+        addSellOffer(Material.CACTUS, 1, 128, Arrays.asList(17));
+        addSellOffer(Material.SPIDER_EYE, 2, 24, Arrays.asList(37));
+        addSellOffer(Material.STRING, 2, 32, Arrays.asList(37));
+        addSellOffer(Material.SUGAR_CANE, 1, 64, Arrays.asList(17));
+        addSellOffer(Material.SUGAR, 1, 48, Arrays.asList(37));
+    }
+
+    private void addSellOffer(Material material, int price, int amount, List<Integer> requiredQuests) {
+        ItemStack item = new ItemStack(material, amount);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            item.setItemMeta(meta);
+        }
+        sellOffers.put(sellOffers.size(), new SellOffer(item, price, amount, requiredQuests));
+    }
+
+    private final Map<Player, Integer> sellPageMap = new HashMap<>();
+
+    public void sellInv(Player player, int pageIndex) {
+        sellPageMap.put(player, pageIndex);
+        Inventory sellInv = Bukkit.createInventory(null, 54, "Verkaufen - Seite " + (pageIndex + 1));
+
+        int[] allowedSlots = {
+                10, 11, 12, 13, 14, 15, 16,
+                19, 20, 21, 22, 23, 24, 25,
+                28, 29, 30, 31, 32, 33, 34,
+                37, 38, 39, 40, 41, 42, 43
+        };
+
+        ItemStack exitButton = new ItemStack(Material.BARRIER, 1);
+        ItemMeta exitMeta = exitButton.getItemMeta();
+        if (exitMeta != null) {
+            exitMeta.setDisplayName(ChatColor.RED + "EXIT");
+            exitButton.setItemMeta(exitMeta);
+        }
+
+        ItemStack glassPane = new ItemStack(Material.GRAY_STAINED_GLASS_PANE, 1);
+        ItemMeta glassMeta = glassPane.getItemMeta();
+        if (glassMeta != null) {
+            glassMeta.setDisplayName(" ");
+            glassPane.setItemMeta(glassMeta);
+        }
+        for (int i = 0; i < sellInv.getSize(); i++) {
+            sellInv.setItem(i, glassPane);
+        }
+
+        List<SellOffer> availableOffers = new ArrayList<>();
+        for (SellOffer offer : sellOffers.values()) {
+            if (hasCompletedRequiredQuests(player, offer.getRequiredQuests())) {
+                availableOffers.add(offer);
+            }
+        }
+
+        int startIndex = pageIndex * ITEMS_PER_PAGE;
+        int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, availableOffers.size());
+
+        for (int i = startIndex, slotIndex = 0; i < endIndex; i++, slotIndex++) {
+            SellOffer offer = availableOffers.get(i);
+            ItemStack displayItem = offer.getItem().clone();
+            ItemMeta meta = displayItem.getItemMeta();
+            if (meta != null) {
+                meta.setLore(Arrays.asList(
+                        ChatColor.YELLOW + "Preis: " + ChatColor.GOLD + offer.getPrice() + " Perlen",
+                        ChatColor.GREEN + "Klicken, um zu verkaufen"
+                ));
+                displayItem.setItemMeta(meta);
+            }
+            sellInv.setItem(allowedSlots[slotIndex], displayItem);
+        }
+
+        sellInv.setItem(45, exitButton);
+
+        if (pageIndex > 0) {
+            ItemStack prevPage = new ItemStack(Material.ARROW);
+            ItemMeta prevMeta = prevPage.getItemMeta();
+            if (prevMeta != null) {
+                prevMeta.setDisplayName(ChatColor.YELLOW + "⬅ Vorherige Seite");
+                prevPage.setItemMeta(prevMeta);
+            }
+            sellInv.setItem(48, prevPage);
+        }
+
+        if (endIndex < availableOffers.size()) {
+            ItemStack nextPage = new ItemStack(Material.ARROW);
+            ItemMeta nextMeta = nextPage.getItemMeta();
+            if (nextMeta != null) {
+                nextMeta.setDisplayName(ChatColor.YELLOW + "Nächste Seite ➡");
+                nextPage.setItemMeta(nextMeta);
+            }
+            sellInv.setItem(50, nextPage);
+        }
+
+        player.openInventory(sellInv);
+    }
+
+
+    public void confirmSellInv(Player player, SellOffer offer) {
+        Inventory confirmInv = Bukkit.createInventory(null, 27, "Verkauf bestätigen");
+
+        ItemStack glassPane = new ItemStack(Material.GRAY_STAINED_GLASS_PANE, 1);
+        ItemMeta glassMeta = glassPane.getItemMeta();
+        if (glassMeta != null) {
+            glassMeta.setDisplayName(" ");
+            glassPane.setItemMeta(glassMeta);
+        }
+        for (int i = 0; i < confirmInv.getSize(); i++) {
+            confirmInv.setItem(i, glassPane);
+        }
+
+        confirmInv.setItem(13, offer.getItem().clone());
+
+        ItemStack sellButton = new ItemStack(Material.LIME_STAINED_GLASS_PANE, 1);
+        ItemMeta sellMeta = sellButton.getItemMeta();
+        if (sellMeta != null) {
+            sellMeta.setDisplayName(ChatColor.GREEN + "Verkaufen");
+            sellButton.setItemMeta(sellMeta);
+        }
+        confirmInv.setItem(15, sellButton);
+
+        ItemStack cancelButton = new ItemStack(Material.RED_STAINED_GLASS_PANE, 1);
+        ItemMeta cancelMeta = cancelButton.getItemMeta();
+        if (cancelMeta != null) {
+            cancelMeta.setDisplayName(ChatColor.RED + "Abbrechen");
+            cancelButton.setItemMeta(cancelMeta);
+        }
+        confirmInv.setItem(11, cancelButton);
+
+        player.openInventory(confirmInv);
+    }
+
+
+    @EventHandler
+    public void onSellInventoryClick(InventoryClickEvent event) {
+        if (!event.getView().getTitle().startsWith("Verkaufen - Seite")) return;
+
+        Player player = (Player) event.getWhoClicked();
+        ItemStack clickedItem = event.getCurrentItem();
+        if (clickedItem == null || clickedItem.getType() == Material.AIR) {
+            event.setCancelled(true);
+            return;
+        }
+
+        if (clickedItem.getType() == Material.BARRIER) {
+            shopInv(player);
+            event.setCancelled(true);
+            return;
+        }
+
+        if (clickedItem.getType() == Material.GRAY_STAINED_GLASS_PANE) {
+            event.setCancelled(true);
+            return;
+        }
+
+        event.setCancelled(true);
+
+        for (SellOffer offer : sellOffers.values()) {
+            if (clickedItem.getType() == offer.getItem().getType()) {
+                confirmSellInv(player, offer);
+                return;
+            }
+        }
+
+        int currentPage = sellPageMap.getOrDefault(player, 0);
+        if (clickedItem.getType() == Material.ARROW) {
+            if (clickedItem.getItemMeta().getDisplayName().contains("⬅")) {
+                sellInv(player, currentPage - 1);
+            } else if (clickedItem.getItemMeta().getDisplayName().contains("➡")) {
+                sellInv(player, currentPage + 1);
+            }
+        }
+    }
+
+    @EventHandler
+    public void onConfirmSellClick(InventoryClickEvent event) {
+        if (!event.getView().getTitle().equals("Verkauf bestätigen")) return;
+        event.setCancelled(true);
+
+        Player player = (Player) event.getWhoClicked();
+        ItemStack clickedItem = event.getCurrentItem();
+        if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
+
+        if (clickedItem.getType() == Material.LIME_STAINED_GLASS_PANE) {
+            ItemStack itemToSell = event.getInventory().getItem(13);
+            if (itemToSell == null) return;
+
+            for (SellOffer offer : sellOffers.values()) {
+                if (itemToSell.getType() == offer.getItem().getType()) {
+                    int amountToSell = offer.getAmount();
+                    int price = offer.getPrice();
+
+                    if (getItemCount(player, itemToSell.getType()) < amountToSell) {
+                        player.sendMessage(ChatColor.RED + "Du hast nicht genug Items zum Verkaufen!");
+                        return;
+                    }
+
+                    removeItems(player, itemToSell.getType(), amountToSell);
+                    addPearls(player, price);
+
+                    player.sendMessage(ChatColor.GREEN + "Du hast " + amountToSell + "x " + itemToSell.getType() + " für " + price + " Perlen verkauft!");
+                    return;
+                }
+            }
+        } else if (clickedItem.getType() == Material.RED_STAINED_GLASS_PANE) {
+            player.closeInventory();
+            sellInv(player, 0);
+        }
+    }
+
+    private void removeItems(Player player, Material material, int amountToRemove) {
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() == material) {
+                int stackAmount = item.getAmount();
+                if (stackAmount > amountToRemove) {
+                    item.setAmount(stackAmount - amountToRemove);
+                    return;
+                } else {
+                    amountToRemove -= stackAmount;
+                    item.setAmount(0);
+                }
+                if (amountToRemove <= 0) return;
+            }
+        }
+    }
+
+    private void addPearls(Player player, int amount) {
+        ItemStack pearlItem = new ItemStack(Material.HEART_OF_THE_SEA, amount);
+        Map<Integer, ItemStack> leftover = player.getInventory().addItem(pearlItem);
+        if (!leftover.isEmpty()) {
+            Location loc = player.getLocation();
+            for (ItemStack it : leftover.values()) {
+                player.getWorld().dropItemNaturally(loc, it);
+            }
+            player.sendMessage(ChatColor.GOLD + "Dein Inventar war voll. Einige Perlen wurden auf den Boden gelegt!");
+        }
+    }
+
+    private int getItemCount(Player player, Material material) {
+        int count = 0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() == material) {
+                count += item.getAmount();
+            }
+        }
+        return count;
+    }
+
 }
 
 
