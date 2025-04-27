@@ -2334,7 +2334,8 @@ public final class Quest extends JavaPlugin implements Listener {
                                      "WHERE playerprogress.player_id = ? " +
                                      "AND playerprogress.isQuestforPlayerAvailable = 1 " +
                                      "AND quests.task LIKE '%mineBlock%'");
-                     PreparedStatement progressStmt = conn.prepareStatement("SELECT tasks FROM playerprogress WHERE player_id = ? AND quest_id = ?")) {
+                     PreparedStatement progressStmt = conn.prepareStatement(
+                             "SELECT tasks FROM playerprogress WHERE player_id = ? AND quest_id = ?")) {
 
                     pstmt.setString(1, playerUUID);
                     try (ResultSet rs = pstmt.executeQuery()) {
@@ -2358,37 +2359,36 @@ public final class Quest extends JavaPlugin implements Listener {
                                 }
                             }
 
-                            boolean allTasksCompleted = true;
+                            boolean progressUpdated = false;
+                            int totalProgress = 0;
+                            int requiredTotal = 0;
 
                             for (Map<String, Object> task : taskDetails) {
                                 if ("mineBlock".equals(task.get("type"))) {
                                     String targetBlock = (String) task.get("target");
                                     int requiredAmount = ((Number) task.get("amount")).intValue();
+                                    requiredTotal += requiredAmount;
 
                                     if (blockName.equalsIgnoreCase(targetBlock)) {
                                         String progressKey = "mineBlock:" + targetBlock;
                                         int currentProgress = progressMap.getOrDefault(progressKey, 0);
-                                        int newProgress = Math.min(currentProgress + 1, requiredAmount);
-                                        progressMap.put(progressKey, newProgress);
+
+                                        if (currentProgress < requiredAmount) {
+                                            progressMap.put(progressKey, currentProgress + 1);
+                                            progressUpdated = true;
+                                        }
                                     }
                                 }
                             }
 
-                            Location loc = event.getBlock().getLocation();
-                            Material type = event.getBlock().getType();
+                            if (progressUpdated) {
+                                totalProgress = progressMap.values().stream().mapToInt(Integer::intValue).sum();
+                                updateTaskProgress(player, questId, progressMap);
 
-                            if (!isCrop(type)) {
-                                UUID playerId = player.getUniqueId();
-                                long now = System.currentTimeMillis();
-                                Map<Location, Long> playerCooldowns = blockActionCooldowns.computeIfAbsent(playerId, k -> new HashMap<>());
-                                Long lastAction = playerCooldowns.get(loc);
-                                if (lastAction != null && now - lastAction < COOLDOWN_MILLIS) {
-                                    return;
+                                if (totalProgress >= requiredTotal) {
+                                    completeQuest(player, questId);
                                 }
-                                playerCooldowns.put(loc, now);
                             }
-
-                            updateTaskProgress(player, questId, progressMap);
                         }
                     }
                 } catch (SQLException e) {
@@ -2397,6 +2397,7 @@ public final class Quest extends JavaPlugin implements Listener {
             }
         }.runTaskAsynchronously(this);
     }
+
 
     @EventHandler
     public void onEnchant(EnchantItemEvent event) {
@@ -3165,15 +3166,18 @@ public final class Quest extends JavaPlugin implements Listener {
     }
 
     @EventHandler
-    public void onFurnaceSmelt(FurnaceSmeltEvent event) {
-        ItemStack result = event.getResult();
-        String smeltedItem = result.getType().name();
-        Block furnaceBlock = event.getBlock();
-        InventoryHolder holder = (InventoryHolder) furnaceBlock.getState();
+    public void onFurnaceTake(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) return;
 
-        if (holder.getInventory().getViewers().isEmpty()) return;
-        if (!(holder.getInventory().getViewers().get(0) instanceof Player player)) return;
+        if (event.getInventory().getType() != InventoryType.FURNACE) return;
 
+        if (event.getSlot() != 2) return;
+
+        ItemStack clickedItem = event.getCurrentItem();
+        if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
+
+        String smeltedItem = clickedItem.getType().name();
+        int amountTaken = clickedItem.getAmount();
         String playerUUID = player.getUniqueId().toString();
 
         new BukkitRunnable() {
@@ -3211,20 +3215,35 @@ public final class Quest extends JavaPlugin implements Listener {
                                 }
                             }
 
+                            boolean progressUpdated = false;
+                            int totalProgress = 0;
+                            int requiredTotal = 0;
+
                             for (Map<String, Object> task : taskDetails) {
                                 if ("smeltItem".equals(task.get("type"))) {
                                     String targetItem = (String) task.get("target");
                                     int requiredAmount = ((Number) task.get("amount")).intValue();
+                                    requiredTotal += requiredAmount;
 
                                     if (smeltedItem.equalsIgnoreCase(targetItem)) {
                                         String progressKey = "smeltItem:" + targetItem;
                                         int currentProgress = progressMap.getOrDefault(progressKey, 0);
-                                        int newProgress = Math.min(currentProgress + 1, requiredAmount);
+
+                                        int newProgress = Math.min(currentProgress + amountTaken, requiredAmount);
                                         progressMap.put(progressKey, newProgress);
+                                        progressUpdated = true;
                                     }
                                 }
                             }
-                            updateTaskProgress(player, questId, progressMap);
+
+                            if (progressUpdated) {
+                                totalProgress = progressMap.values().stream().mapToInt(Integer::intValue).sum();
+                                updateTaskProgress(player, questId, progressMap);
+
+                                if (totalProgress >= requiredTotal) {
+                                    completeQuest(player, questId);
+                                }
+                            }
                         }
                     }
                 } catch (SQLException e) {
@@ -3233,6 +3252,7 @@ public final class Quest extends JavaPlugin implements Listener {
             }
         }.runTaskAsynchronously(this);
     }
+
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
