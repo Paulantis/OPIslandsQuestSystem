@@ -122,6 +122,23 @@ public final class Quest extends JavaPlugin implements Listener {
         setupRestrictedZones();
         setupSellOffers();
         setupBuyOffers();
+        overwriteQuest(
+                28,
+                "Mangroven Meister",
+                "Habe 768 Mangroven Setzlinge im Inventar",
+                "HEART_OF_THE_SEA,20,{\"name\":\"Perle\",\"lore\":[\"Kann zum traden benutzt werden.\",\"Belohnungen von Quests.\"]}",
+                "20x Perlen",
+                "Eisen",
+                "Oberwelt",
+                "Schwer",
+                "32",
+                "[{\"text\":\"Mangroven Setzlinge: \"}]",
+                "[{\"type\":\"getItem\",\"target\":\"MANGROVE_PROPAGULE\",\"amount\":\"768\"}]",
+                "[]",
+                768,
+                "MANGROVE_PROPAGULE",
+                "ALL"
+        );
     }
 
     @Override
@@ -213,10 +230,7 @@ public final class Quest extends JavaPlugin implements Listener {
         Gson gson = new Gson();
 
         Integer[] ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55};
-        String[] names = {
-                "Gestrandet",
-                "Starter Equipment",
-                "Der Wald",
+        String[] names = {"Gestrandet", "Starter Equipment", "Der Wald",
                 "Die Mine",
                 "Zombies!",
                 "Anfänger Gärtner",
@@ -266,8 +280,8 @@ public final class Quest extends JavaPlugin implements Listener {
                 "Magier III",
                 "Experten Koch",
                 "Monster Bezwinger",
-                "Becon I",
-                "Becon II 18",
+                "Beacon I",
+                "Beacon II 18",
                 "Nether"
         };
         String[] descriptions = {
@@ -1351,6 +1365,60 @@ public final class Quest extends JavaPlugin implements Listener {
         }
     }
 
+    private void overwriteQuest(
+            int questId,
+            String name,
+            String description,
+            String reward,
+            String displayReward,
+            String layer,
+            String dimension,
+            String difficulty,
+            String nextQuests,
+            String taskDescription,
+            String task,
+            String requiredQuests,
+            int requiredValue,
+            String displayItem,
+            String taskMode
+    ) {
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "UPDATE quests SET " +
+                             "name = ?, description = ?, reward = ?, displayreward = ?, " +
+                             "layer = ?, dimension = ?, difficulty = ?, nextquests = ?, " +
+                             "task_description = ?, task = ?, required_quests = ?, " +
+                             "required_value = ?, displayitem = ?, taskmode = ? " +
+                             "WHERE id = ?"
+             )) {
+            stmt.setString(1, name);
+            stmt.setString(2, description);
+            stmt.setString(3, reward);
+            stmt.setString(4, displayReward);
+            stmt.setString(5, layer);
+            stmt.setString(6, dimension);
+            stmt.setString(7, difficulty);
+            stmt.setString(8, nextQuests);
+            stmt.setString(9, taskDescription);
+            stmt.setString(10, task);
+            stmt.setString(11, requiredQuests);
+            stmt.setInt(12, requiredValue);
+            stmt.setString(13, displayItem);
+            stmt.setString(14, taskMode);
+            stmt.setInt(15, questId);
+
+            int updated = stmt.executeUpdate();
+            if (updated > 0) {
+                Bukkit.getLogger().info("Quest mit ID " + questId + " wurde erfolgreich überschrieben.");
+            } else {
+                Bukkit.getLogger().warning("Quest mit ID " + questId + " wurde nicht gefunden.");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+
     public void canUnlockQuest(String playerUUID, int questId, Consumer<Boolean> callback) {
         new BukkitRunnable() {
             @Override
@@ -1714,9 +1782,20 @@ public final class Quest extends JavaPlugin implements Listener {
                                 Map<String, Object> task = taskList.get(i);
                                 String taskType = (String) task.get("type");
                                 String target = task.containsKey("target") ? (String) task.get("target") : "Unbekannt";
-                                int requiredAmount = task.containsKey("amount") && task.get("amount") instanceof Number
-                                        ? ((Number) task.get("amount")).intValue()
-                                        : 1;
+                                int requiredAmount = 1; // Fallback
+
+                                Object amountObj = task.get("amount");
+                                if (amountObj instanceof Number) {
+                                    requiredAmount = ((Number) amountObj).intValue();
+                                } else if (amountObj instanceof String) {
+                                    try {
+                                        requiredAmount = Integer.parseInt((String) amountObj);
+                                    } catch (NumberFormatException e) {
+                                        Bukkit.getLogger().warning("[OPIslandsQuestSystem] Fehler: 'amount' konnte nicht als Zahl gelesen werden: " + amountObj);
+                                    }
+                                } else {
+                                    Bukkit.getLogger().warning("[OPIslandsQuestSystem] WARNUNG: Unerwarteter Typ für 'amount' in Quest: " + (amountObj != null ? amountObj.getClass().getSimpleName() : "null"));
+                                }
 
                                 String progressKey = taskType + ":" + target;
                                 int taskProgress = progressMap.getOrDefault(progressKey, 0);
@@ -2226,8 +2305,8 @@ public final class Quest extends JavaPlugin implements Listener {
                                 if ("getItem".equals(task.get("type"))) {
                                     String targetItem = ((String) task.get("target")).toUpperCase();
                                     Object amountObj = task.get("amount");
-                                    int requiredAmount = 0;
 
+                                    int requiredAmount = 0;
                                     if (amountObj instanceof Number) {
                                         requiredAmount = ((Number) amountObj).intValue();
                                     } else if (amountObj instanceof String) {
@@ -2235,8 +2314,11 @@ public final class Quest extends JavaPlugin implements Listener {
                                             requiredAmount = Integer.parseInt((String) amountObj);
                                         } catch (NumberFormatException e) {
                                             Bukkit.getLogger().warning("[OPIslandsQuestSystem] Fehler: 'amount' konnte nicht in eine Zahl umgewandelt werden: " + amountObj);
-                                            continue;
+                                            continue; // Skip diese Aufgabe
                                         }
+                                    } else {
+                                        Bukkit.getLogger().warning("[OPIslandsQuestSystem] Fehler: Unerwarteter Typ für 'amount': " + amountObj.getClass().getSimpleName());
+                                        continue;
                                     }
 
                                     int itemCount = 0;
@@ -2245,21 +2327,26 @@ public final class Quest extends JavaPlugin implements Listener {
                                             if (stack.getType() == Material.ENCHANTED_BOOK) {
                                                 ItemMeta meta = stack.getItemMeta();
                                                 if (meta instanceof EnchantmentStorageMeta enchantMeta) {
-                                                    Map<String, Object> metaMap = (Map<String, Object>) task.get("meta");
-                                                    if (metaMap != null) {
-                                                        Object enchantObj = metaMap.get("enchantment");
-                                                        Object levelObj = metaMap.get("level");
-                                                        if (enchantObj instanceof String requiredEnchant && levelObj instanceof Number) {
-                                                            requiredEnchant = requiredEnchant.toUpperCase();
-                                                            int requiredLevel = ((Number) levelObj).intValue();
-                                                            for (Map.Entry<Enchantment, Integer> entry : enchantMeta.getStoredEnchants().entrySet()) {
-                                                                String enchantName = entry.getKey().getKey().getKey().toUpperCase();
-                                                                int enchantLevel = entry.getValue().intValue();
-                                                                if (enchantName.equals(requiredEnchant) && enchantLevel >= requiredLevel) {
-                                                                    itemCount += stack.getAmount();
+                                                    Object metaRaw = task.get("meta");
+                                                    if (metaRaw instanceof Map) {
+                                                        Map<String, Object> metaMap = (Map<String, Object>) metaRaw;
+                                                        if (metaMap != null) {
+                                                            Object enchantObj = metaMap.get("enchantment");
+                                                            Object levelObj = metaMap.get("level");
+                                                            if (enchantObj instanceof String requiredEnchant && levelObj instanceof Number) {
+                                                                requiredEnchant = requiredEnchant.toUpperCase();
+                                                                int requiredLevel = ((Number) levelObj).intValue();
+                                                                for (Map.Entry<Enchantment, Integer> entry : enchantMeta.getStoredEnchants().entrySet()) {
+                                                                    String enchantName = entry.getKey().getKey().getKey().toUpperCase();
+                                                                    int enchantLevel = entry.getValue();
+                                                                    if (enchantName.equals(requiredEnchant) && enchantLevel >= requiredLevel) {
+                                                                        itemCount += stack.getAmount();
+                                                                    }
                                                                 }
                                                             }
                                                         }
+                                                    } else if (metaRaw != null) {
+                                                        Bukkit.getLogger().warning("[OPIslandsQuestSystem] WARNUNG: 'meta' ist kein Map, sondern " + metaRaw.getClass().getSimpleName());
                                                     }
                                                 }
                                             } else {
@@ -2269,20 +2356,12 @@ public final class Quest extends JavaPlugin implements Listener {
                                     }
 
                                     String progressKey = "getItem:" + targetItem;
-                                    int newProgress = Math.min(itemCount, requiredAmount);
-                                    if (progressMap.getOrDefault(progressKey, 0) != newProgress) {
-                                        progressMap.put(progressKey, newProgress);
+                                    int currentProgress = progressMap.getOrDefault(progressKey, 0);
+
+                                    if (itemCount > currentProgress) {
+                                        progressMap.put(progressKey, Math.min(itemCount, requiredAmount));
                                         progressUpdated = true;
                                     }
-
-                                    if (itemCount >= requiredAmount) {
-                                        if (progressMap.getOrDefault(progressKey, 0) < requiredAmount) {
-                                            progressMap.put(progressKey, requiredAmount);
-                                            progressUpdated = true;
-                                        }
-                                    }
-
-
                                 }
                             }
 
@@ -2519,7 +2598,21 @@ public final class Quest extends JavaPlugin implements Listener {
                                 for (Map<String, Object> task : taskDetails) {
                                     String taskType = (String) task.get("type");
                                     String target = task.get("target") != null ? (String) task.get("target") : "UNKNOWN";
-                                    int requiredAmount = ((Number) task.get("amount")).intValue();
+                                    Object amountObj = task.get("amount");
+                                    int requiredAmount = 0;
+                                    if (amountObj instanceof Number) {
+                                        requiredAmount = ((Number) amountObj).intValue();
+                                    } else if (amountObj instanceof String) {
+                                        try {
+                                            requiredAmount = Integer.parseInt((String) amountObj);
+                                        } catch (NumberFormatException e) {
+                                            Bukkit.getLogger().warning("[OPIslandsQuestSystem] Fehler beim Parsen von amount: " + amountObj);
+                                            continue;
+                                        }
+                                    } else {
+                                        Bukkit.getLogger().warning("[OPIslandsQuestSystem] Unerwarteter Typ für amount: " + amountObj.getClass().getSimpleName());
+                                        continue;
+                                    }
 
                                     String progressKey = taskType + ":" + target;
                                     int currentProgress = progressMap.getOrDefault(progressKey, 0);
@@ -3573,6 +3666,49 @@ public final class Quest extends JavaPlugin implements Listener {
     }
 
     //Villager Shop
+    private void addNewBuyOffersForAllPlayers() {
+        try (Connection conn = getConnection()) {
+            String selectPlayersSql = "SELECT DISTINCT uuid FROM shops";
+            String checkItemSql = "SELECT 1 FROM shops WHERE uuid = ? AND item = ?";
+            String insertItemSql = "INSERT INTO shops (uuid, item, available) VALUES (?, ?, ?)";
+
+            List<String> newItems = Arrays.asList(
+                    "IRON_ORE", "COAL_ORE", "GOLD_ORE"
+            );
+
+            try (PreparedStatement selectPlayersStmt = conn.prepareStatement(selectPlayersSql);
+                 ResultSet playersRs = selectPlayersStmt.executeQuery()) {
+
+                while (playersRs.next()) {
+                    String playerUUID = playersRs.getString("uuid");
+
+                    for (String item : newItems) {
+                        try (PreparedStatement checkItemStmt = conn.prepareStatement(checkItemSql)) {
+                            checkItemStmt.setString(1, playerUUID);
+                            checkItemStmt.setString(2, item);
+
+                            try (ResultSet checkRs = checkItemStmt.executeQuery()) {
+                                if (!checkRs.next()) {
+                                    // Item existiert noch nicht -> hinzufügen
+                                    try (PreparedStatement insertItemStmt = conn.prepareStatement(insertItemSql)) {
+                                        insertItemStmt.setString(1, playerUUID);
+                                        insertItemStmt.setString(2, item);
+                                        insertItemStmt.setBoolean(3, true);
+                                        insertItemStmt.executeUpdate();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+
     @EventHandler
     public void onPlayerInteractShopKeeper(PlayerInteractEntityEvent event) {
         if (!(event.getRightClicked() instanceof Villager)) return;
@@ -3580,17 +3716,28 @@ public final class Quest extends JavaPlugin implements Listener {
         Villager villager = (Villager) event.getRightClicked();
         Player player = event.getPlayer();
 
-        Location shopLocation = new Location(Bukkit.getWorld("world"), -128, 72, -14);
+        double targetX = -128;
+        double targetY = 72;
+        double targetZ = -14;
+        double tolerance = 100.0;
 
-        double tolerance = 2.0;
-        if (!villager.getLocation().getWorld().equals(shopLocation.getWorld()) ||
-                villager.getLocation().distance(shopLocation) > tolerance) {
+        Location villagerLoc = villager.getLocation();
+
+        double distance = Math.sqrt(
+                Math.pow(villagerLoc.getX() - targetX, 2) +
+                        Math.pow(villagerLoc.getY() - targetY, 2) +
+                        Math.pow(villagerLoc.getZ() - targetZ, 2)
+        );
+
+        if (distance > tolerance) {
             return;
         }
 
         event.setCancelled(true);
+        addNewBuyOffersForAllPlayers();
         shopInv(player);
     }
+
 
     @EventHandler
     public void onShopClick(InventoryClickEvent event) {
@@ -3726,7 +3873,9 @@ public final class Quest extends JavaPlugin implements Listener {
         addBuyOffer(Material.DIAMOND_LEGGINGS, 20, 1, 1, Arrays.asList(17));
         addBuyOffer(Material.COPPER_BLOCK, 1, 5, 1, Arrays.asList(17));
         addBuyOffer(Material.ENCHANTING_TABLE, 50, 1, 1, Arrays.asList(17));
-        addBuyOffer(Material.RAW_IRON, 3, 16, 1, Arrays.asList(17));
+        addBuyOffer(Material.IRON_ORE, 3, 16, 1, Arrays.asList());
+        addBuyOffer(Material.COAL_ORE, 2, 16,1, Arrays.asList());
+        addBuyOffer(Material.GOLD_ORE, 4, 16, 1, Arrays.asList(17));
         addBuyOffer(Material.REDSTONE, 2, 64, 1, Arrays.asList(17));
         addBuyOffer(Material.WOLF_SPAWN_EGG, 10, 1, 2, Arrays.asList(17));
         addBuyOffer(Material.WOLF_ARMOR, 10, 1, 1, Arrays.asList(17));
@@ -4189,7 +4338,7 @@ public final class Quest extends JavaPlugin implements Listener {
         addSellOffer(Material.COD, 1, 24, Arrays.asList());
         addSellOffer(Material.SALMON, 1, 24, Arrays.asList());
         addSellOffer(Material.TROPICAL_FISH, 1, 24, Arrays.asList());
-        addSellOffer(Material.EGG, 1, 24, Arrays.asList());
+        addSellOffer(Material.EGG, 1, 64, Arrays.asList());
         addSellOffer(Material.LEATHER, 1, 24, Arrays.asList());
         addSellOffer(Material.BONE, 4, 32, Arrays.asList(17));
         addSellOffer(Material.PUFFERFISH, 2, 10, Arrays.asList(17));
